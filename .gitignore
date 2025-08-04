@@ -1,0 +1,32 @@
+/target
+
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# User configuration
+config.toml
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.backup
+*.tmp
