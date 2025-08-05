@@ -45,15 +45,6 @@ impl Default for Config {
             },
         );
 
-        bindings.insert(
-            "d".to_string(),
-            AppBinding {
-                name: "DB Browser for SQLite".to_string(),
-                command: "open".to_string(),
-                args: vec!["-a".to_string(), "DB Browser for SQLite".to_string()],
-            },
-        );
-
         Config {
             leader_key: "alt".to_string(),
             bindings,
