@@ -5,33 +5,62 @@ A fast, configurable system-wide key launcher written in Rust. Launch any applic
 ## ✨ Features
 
 - **🎯 System-wide hotkeys** - Works regardless of which application has focus
+- **🛡️ Event interception** - Hotkeys are fully intercepted (no key bleed-through to other apps)
 - **⚙️ Fully configurable** - Customize leader key and all key bindings via TOML config
 - **🔥 Fast & lightweight** - Built in Rust for maximum performance
 - **🌍 Cross-platform** - Works on macOS, Linux, and Windows
 - **📝 Auto-generated config** - Creates a default configuration file on first run
 - **🛡️ Safe execution** - Proper error handling and validation
+- **🔧 Extended key support** - Supports letters, numbers, function keys, arrow keys, and special keys
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Rust 1.70 or higher
-- On Linux: X11 development libraries (`sudo apt-get install libx11-dev libxtst-dev libevdev-dev` on Ubuntu/Debian)
+- On Linux: X11 development libraries
 
-### Installation
+### Easy Installation
 
-1. Clone the repository:
+**Option 1: Automated Installation**
 ```bash
 git clone https://github.com/yourusername/key-launcher.git
 cd key-launcher
+chmod +x install.sh
+./install.sh
 ```
 
-2. Build and run:
+**Option 2: Using Make**
 ```bash
-cargo run
+git clone https://github.com/yourusername/key-launcher.git
+cd key-launcher
+make install
 ```
 
-3. On first run, a `config.toml` file will be created with default bindings.
+**Option 3: Manual Installation**
+```bash
+git clone https://github.com/yourusername/key-launcher.git
+cd key-launcher
+cargo build --release
+sudo cp target/release/key-launcher /usr/local/bin/
+```
+
+### Running Key Launcher
+
+**Foreground (for testing):**
+```bash
+key-launcher
+# or
+make run
+```
+
+**Background (recommended for daily use):**
+```bash
+make daemon    # Start as background service
+make stop      # Stop the service
+make status    # Check if running
+make logs      # View logs
+```
 
 ## ⚙️ Configuration
 
@@ -70,7 +99,7 @@ Supported leader keys:
 ### Key Bindings
 
 Each binding consists of:
-- **Key**: Any letter (a-z), number (0-9), or `space`
+- **Key**: Any letter (a-z), number (0-9), function key (f1-f12), arrow keys (up/down/left/right), or special keys (space, tab, escape, enter, backspace)
 - **Name**: Display name for the application/command
 - **Command**: The executable to run
 - **Args**: Array of command-line arguments
@@ -114,6 +143,57 @@ Example with default config:
 
 ## 🛠️ Development
 
+### Make Commands
+
+```bash
+make help      # Show all available commands
+make build     # Build release version
+make dev       # Build and run in development
+make run       # Build and run release version
+make check     # Run linting and format checks
+make format    # Format code
+make test      # Run tests
+make clean     # Clean build artifacts
+```
+
+### Background Service Management
+
+```bash
+make daemon    # Start as background daemon
+make start     # Alias for daemon
+make stop      # Stop background service
+make status    # Check service status
+make logs      # View daemon logs (tail -f)
+```
+
+### System Service Installation
+
+**Linux (systemd):**
+```bash
+# Copy service file
+sudo cp key-launcher.service /etc/systemd/system/key-launcher@.service
+
+# Enable for your user
+systemctl --user enable key-launcher@$USER.service
+systemctl --user start key-launcher@$USER.service
+
+# Check status
+systemctl --user status key-launcher@$USER.service
+```
+
+**macOS (LaunchAgent):**
+```bash
+# Copy plist file
+cp com.keylauncher.daemon.plist ~/Library/LaunchAgents/
+
+# Load and start service
+launchctl load ~/Library/LaunchAgents/com.keylauncher.daemon.plist
+launchctl start com.keylauncher.daemon
+
+# Check status
+launchctl list | grep keylauncher
+```
+
 ### Building from Source
 
 ```bash
@@ -139,11 +219,20 @@ RUST_LOG=debug cargo run
 ```
 key-launcher/
 ├── src/
-│   └── main.rs          # Main application logic
-├── Cargo.toml           # Rust dependencies and metadata
-├── config.toml          # Configuration file (auto-generated)
-├── README.md            # This file
-└── LICENSE              # License information
+│   └── main.rs                      # Main application logic
+├── .github/
+│   └── workflows/
+│       └── ci.yml                   # GitHub Actions CI/CD
+├── Cargo.toml                       # Rust dependencies and metadata
+├── Makefile                         # Build and service management
+├── install.sh                       # Automated installation script
+├── key-launcher.service             # Linux systemd service
+├── com.keylauncher.daemon.plist     # macOS LaunchAgent
+├── config.toml                      # Configuration file (auto-generated)
+├── README.md                        # This file
+├── CONTRIBUTING.md                  # Contribution guidelines
+├── LICENSE                          # License information
+└── .gitignore                       # Git ignore rules
 ```
 
 ## 🔧 Dependencies

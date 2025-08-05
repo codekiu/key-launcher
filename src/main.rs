@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
+    window::WindowBuilder,
+};
 
 const CONFIG_FILE: &str = "config.toml";
 const APP_NAME: &str = "Key Launcher";
@@ -102,6 +104,19 @@ fn string_to_code(key_str: &str) -> Option<Code> {
         "space" => Some(Code::Space),
         "tab" => Some(Code::Tab),
         "escape" | "esc" => Some(Code::Escape),
+        // Function keys
+        "f1" => Some(Code::F1),
+        "f2" => Some(Code::F2),
+        "f3" => Some(Code::F3),
+        "f4" => Some(Code::F4),
+        "f5" => Some(Code::F5),
+        "f6" => Some(Code::F6),
+        "f7" => Some(Code::F7),
+        "f8" => Some(Code::F8),
+        "f9" => Some(Code::F9),
+        "f10" => Some(Code::F10),
+        "f11" => Some(Code::F11),
+        "f12" => Some(Code::F12),
         // Single character keys
         "a" => Some(Code::KeyA),
         "b" => Some(Code::KeyB),
@@ -180,35 +195,61 @@ fn main() {
         }
     };
 
+    // Create event loop (required for macOS)
+    let event_loop = EventLoop::new().unwrap();
+
+    // Create global hotkey manager on the main thread
+    let manager = match GlobalHotKeyManager::new() {
+        Ok(manager) => {
+            println!("✅ Global hotkey manager created successfully");
+            manager
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to create global hotkey manager: {}", e);
+            eprintln!("💡 You may need to grant accessibility permissions to this application");
+            std::process::exit(1);
+        }
+    };
+
     println!("🟢 {} started successfully!", APP_NAME);
-    println!("📋 Leader key: {}", config.leader_key);
+    println!("📋 Leader key: {} ({:?})", config.leader_key, modifier);
     println!("🔗 Available bindings:");
 
-    // Create global hotkey manager
-    let manager = GlobalHotKeyManager::new().unwrap();
     let mut hotkey_map = HashMap::new();
-    let mut hotkey_id = 1u32;
 
-    // Register hotkeys
+    // Register hotkeys with detailed debugging
     for (key_str, binding) in &config.bindings {
+        println!("🔧 Processing binding: {} -> {}", key_str, binding.name);
+
         if let Some(code) = string_to_code(key_str) {
             let hotkey = HotKey::new(Some(modifier), code);
+            println!(
+                "   Created hotkey: {:?} + {:?} (ID: {})",
+                modifier,
+                code,
+                hotkey.id()
+            );
 
             match manager.register(hotkey) {
                 Ok(()) => {
-                    println!("   {} + {} → {}", config.leader_key, key_str, binding.name);
-                    hotkey_map.insert(hotkey.id(), (key_str.clone(), binding.clone()));
-                    hotkey_id += 1;
+                    println!(
+                        "   ✅ {} + {} → {} (ID: {})",
+                        config.leader_key,
+                        key_str,
+                        binding.name,
+                        hotkey.id()
+                    );
+                    hotkey_map.insert(hotkey.id(), binding);
                 }
                 Err(e) => {
                     eprintln!(
-                        "❌ Failed to register hotkey {} + {}: {}",
+                        "   ❌ Failed to register hotkey {} + {}: {}",
                         config.leader_key, key_str, e
                     );
                 }
             }
         } else {
-            eprintln!("❌ Invalid key '{}' in config", key_str);
+            eprintln!("   ❌ Invalid key '{}' in config", key_str);
         }
     }
 
@@ -217,21 +258,48 @@ fn main() {
         std::process::exit(1);
     }
 
-    println!("\n💡 Press Ctrl+C to stop");
+    println!("\n📊 Registered {} hotkeys:", hotkey_map.len());
+    for (id, binding) in &hotkey_map {
+        println!("   ID {} -> {}", id, binding.name);
+    }
+
+    // Create a hidden window for the event loop
+    let window = WindowBuilder::new()
+        .with_title("Key Launcher")
+        .with_visible(false)
+        .build(&event_loop)
+        .unwrap();
+
+    println!("\n💡 Press Ctrl+C to stop or close this window");
     println!("✨ Hotkeys are now active and will be intercepted (no key bleed-through)");
 
-    // Create event receiver
+    // Get global hotkey event receiver
     let global_hotkey_channel = GlobalHotKeyEvent::receiver();
 
-    // Main event loop
-    loop {
-        if let Ok(event) = global_hotkey_channel.try_recv() {
-            if let Some((key_str, binding)) = hotkey_map.get(&event.id) {
-                execute_command(binding);
+    // Run the event loop
+    event_loop
+        .run(move |event, window_target| {
+            // Check for global hotkey events
+            if let Ok(hotkey_event) = global_hotkey_channel.try_recv() {
+                println!("🔍 Received hotkey event with ID: {}", hotkey_event.id);
+                if let Some(binding) = hotkey_map.get(&hotkey_event.id) {
+                    execute_command(binding);
+                } else {
+                    println!("⚠️  No binding found for hotkey ID: {}", hotkey_event.id);
+                    println!(
+                        "   Available IDs: {:?}",
+                        hotkey_map.keys().collect::<Vec<_>>()
+                    );
+                }
             }
-        }
 
-        // Small delay to prevent excessive CPU usage
-        thread::sleep(Duration::from_millis(10));
-    }
+            match event {
+                Event::WindowEvent {
+                    event: WindowEvent::CloseRequested,
+                    window_id,
+                } if window_id == window.id() => window_target.exit(),
+                _ => (),
+            }
+        })
+        .unwrap();
 }

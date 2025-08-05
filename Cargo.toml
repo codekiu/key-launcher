@@ -2,17 +2,21 @@
 name = "key-launcher"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Jesus Copado Espejo"]
 description = "A fast, configurable system-wide key launcher written in Rust"
 readme = "README.md"
-homepage = "https://github.com/yourusername/key-launcher"
-repository = "https://github.com/yourusername/key-launcher"
+homepage = "https://github.com/codekiu/key-launcher"
+repository = "https://github.com/codekiu/key-launcher"
 license = "MIT"
 keywords = ["hotkeys", "launcher", "keyboard", "shortcuts", "automation"]
 categories = ["command-line-utilities", "os"]
 
 [dependencies]
-global-hotkey = "0.5"
+winit = "0.29"
+global-hotkey = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
-ctrlc = "3.4"
+tray-icon = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
