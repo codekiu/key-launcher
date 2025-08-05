@@ -1,0 +1,24 @@
+[Unit]
+Description=Key Launcher - System-wide hotkey launcher
+After=graphical-session.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/local/bin/key-launcher
+Restart=always
+RestartSec=5
+Environment=DISPLAY=:0
+WorkingDirectory=%h
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=key-launcher
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
