@@ -1,10 +1,14 @@
-use rdev::{listen, Event, EventType, Key};
+use global_hotkey::{
+    hotkey::{Code, HotKey, Modifiers},
+    GlobalHotKeyEvent, GlobalHotKeyManager,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 const CONFIG_FILE: &str = "config.toml";
 const APP_NAME: &str = "Key Launcher";
@@ -45,6 +49,15 @@ impl Default for Config {
             },
         );
 
+        bindings.insert(
+            "d".to_string(),
+            AppBinding {
+                name: "DB Browser for SQLite".to_string(),
+                command: "open".to_string(),
+                args: vec!["-a".to_string(), "DB Browser for SQLite".to_string()],
+            },
+        );
+
         Config {
             leader_key: "alt".to_string(),
             bindings,
@@ -74,53 +87,59 @@ fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
     Ok(config)
 }
 
-fn string_to_key(key_str: &str) -> Option<Key> {
+fn string_to_modifier(key_str: &str) -> Option<Modifiers> {
     match key_str.to_lowercase().as_str() {
-        "alt" => Some(Key::Alt),
-        "ctrl" | "control" => Some(Key::ControlLeft),
-        "cmd" | "meta" | "super" => Some(Key::MetaLeft),
-        "shift" => Some(Key::ShiftLeft),
-        "space" => Some(Key::Space),
-        "tab" => Some(Key::Tab),
-        "escape" | "esc" => Some(Key::Escape),
+        "alt" => Some(Modifiers::ALT),
+        "ctrl" | "control" => Some(Modifiers::CONTROL),
+        "cmd" | "meta" | "super" => Some(Modifiers::SUPER),
+        "shift" => Some(Modifiers::SHIFT),
+        _ => None,
+    }
+}
+
+fn string_to_code(key_str: &str) -> Option<Code> {
+    match key_str.to_lowercase().as_str() {
+        "space" => Some(Code::Space),
+        "tab" => Some(Code::Tab),
+        "escape" | "esc" => Some(Code::Escape),
         // Single character keys
-        "a" => Some(Key::KeyA),
-        "b" => Some(Key::KeyB),
-        "c" => Some(Key::KeyC),
-        "d" => Some(Key::KeyD),
-        "e" => Some(Key::KeyE),
-        "f" => Some(Key::KeyF),
-        "g" => Some(Key::KeyG),
-        "h" => Some(Key::KeyH),
-        "i" => Some(Key::KeyI),
-        "j" => Some(Key::KeyJ),
-        "k" => Some(Key::KeyK),
-        "l" => Some(Key::KeyL),
-        "m" => Some(Key::KeyM),
-        "n" => Some(Key::KeyN),
-        "o" => Some(Key::KeyO),
-        "p" => Some(Key::KeyP),
-        "q" => Some(Key::KeyQ),
-        "r" => Some(Key::KeyR),
-        "s" => Some(Key::KeyS),
-        "t" => Some(Key::KeyT),
-        "u" => Some(Key::KeyU),
-        "v" => Some(Key::KeyV),
-        "w" => Some(Key::KeyW),
-        "x" => Some(Key::KeyX),
-        "y" => Some(Key::KeyY),
-        "z" => Some(Key::KeyZ),
+        "a" => Some(Code::KeyA),
+        "b" => Some(Code::KeyB),
+        "c" => Some(Code::KeyC),
+        "d" => Some(Code::KeyD),
+        "e" => Some(Code::KeyE),
+        "f" => Some(Code::KeyF),
+        "g" => Some(Code::KeyG),
+        "h" => Some(Code::KeyH),
+        "i" => Some(Code::KeyI),
+        "j" => Some(Code::KeyJ),
+        "k" => Some(Code::KeyK),
+        "l" => Some(Code::KeyL),
+        "m" => Some(Code::KeyM),
+        "n" => Some(Code::KeyN),
+        "o" => Some(Code::KeyO),
+        "p" => Some(Code::KeyP),
+        "q" => Some(Code::KeyQ),
+        "r" => Some(Code::KeyR),
+        "s" => Some(Code::KeyS),
+        "t" => Some(Code::KeyT),
+        "u" => Some(Code::KeyU),
+        "v" => Some(Code::KeyV),
+        "w" => Some(Code::KeyW),
+        "x" => Some(Code::KeyX),
+        "y" => Some(Code::KeyY),
+        "z" => Some(Code::KeyZ),
         // Numbers
-        "0" => Some(Key::Num0),
-        "1" => Some(Key::Num1),
-        "2" => Some(Key::Num2),
-        "3" => Some(Key::Num3),
-        "4" => Some(Key::Num4),
-        "5" => Some(Key::Num5),
-        "6" => Some(Key::Num6),
-        "7" => Some(Key::Num7),
-        "8" => Some(Key::Num8),
-        "9" => Some(Key::Num9),
+        "0" => Some(Code::Digit0),
+        "1" => Some(Code::Digit1),
+        "2" => Some(Code::Digit2),
+        "3" => Some(Code::Digit3),
+        "4" => Some(Code::Digit4),
+        "5" => Some(Code::Digit5),
+        "6" => Some(Code::Digit6),
+        "7" => Some(Code::Digit7),
+        "8" => Some(Code::Digit8),
+        "9" => Some(Code::Digit9),
         _ => None,
     }
 }
@@ -139,80 +158,6 @@ fn execute_command(binding: &AppBinding) {
     }
 }
 
-// Global state for the callback
-static GLOBAL_STATE: OnceLock<GlobalState> = OnceLock::new();
-
-#[derive(Debug)]
-struct GlobalState {
-    leader_key: Key,
-    leader_pressed: AtomicBool,
-    config: Config,
-}
-
-fn callback(event: Event) {
-    let state = GLOBAL_STATE.get().unwrap();
-
-    match event.event_type {
-        EventType::KeyPress(key) => {
-            if key == state.leader_key {
-                state.leader_pressed.store(true, Ordering::SeqCst);
-            } else if state.leader_pressed.load(Ordering::SeqCst) {
-                // Convert the pressed key back to string to match config
-                let key_string = match key {
-                    Key::KeyA => "a",
-                    Key::KeyB => "b",
-                    Key::KeyC => "c",
-                    Key::KeyD => "d",
-                    Key::KeyE => "e",
-                    Key::KeyF => "f",
-                    Key::KeyG => "g",
-                    Key::KeyH => "h",
-                    Key::KeyI => "i",
-                    Key::KeyJ => "j",
-                    Key::KeyK => "k",
-                    Key::KeyL => "l",
-                    Key::KeyM => "m",
-                    Key::KeyN => "n",
-                    Key::KeyO => "o",
-                    Key::KeyP => "p",
-                    Key::KeyQ => "q",
-                    Key::KeyR => "r",
-                    Key::KeyS => "s",
-                    Key::KeyT => "t",
-                    Key::KeyU => "u",
-                    Key::KeyV => "v",
-                    Key::KeyW => "w",
-                    Key::KeyX => "x",
-                    Key::KeyY => "y",
-                    Key::KeyZ => "z",
-                    Key::Num0 => "0",
-                    Key::Num1 => "1",
-                    Key::Num2 => "2",
-                    Key::Num3 => "3",
-                    Key::Num4 => "4",
-                    Key::Num5 => "5",
-                    Key::Num6 => "6",
-                    Key::Num7 => "7",
-                    Key::Num8 => "8",
-                    Key::Num9 => "9",
-                    Key::Space => "space",
-                    _ => return, // Ignore other keys
-                };
-
-                if let Some(binding) = state.config.bindings.get(key_string) {
-                    execute_command(binding);
-                }
-            }
-        }
-        EventType::KeyRelease(key) => {
-            if key == state.leader_key {
-                state.leader_pressed.store(false, Ordering::SeqCst);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn main() {
     println!("🚀 {} v{}", APP_NAME, VERSION);
 
@@ -224,10 +169,13 @@ fn main() {
         }
     };
 
-    let leader_key = match string_to_key(&config.leader_key) {
-        Some(key) => key,
+    let modifier = match string_to_modifier(&config.leader_key) {
+        Some(modifier) => modifier,
         None => {
-            eprintln!("❌ Invalid leader key '{}'. Supported keys: alt, ctrl, cmd, shift, space, tab, escape, a-z, 0-9", config.leader_key);
+            eprintln!(
+                "❌ Invalid leader key '{}'. Supported keys: alt, ctrl, cmd, shift",
+                config.leader_key
+            );
             std::process::exit(1);
         }
     };
@@ -235,26 +183,55 @@ fn main() {
     println!("🟢 {} started successfully!", APP_NAME);
     println!("📋 Leader key: {}", config.leader_key);
     println!("🔗 Available bindings:");
-    for (key, binding) in &config.bindings {
-        println!("   {} + {} → {}", config.leader_key, key, binding.name);
+
+    // Create global hotkey manager
+    let manager = GlobalHotKeyManager::new().unwrap();
+    let mut hotkey_map = HashMap::new();
+    let mut hotkey_id = 1u32;
+
+    // Register hotkeys
+    for (key_str, binding) in &config.bindings {
+        if let Some(code) = string_to_code(key_str) {
+            let hotkey = HotKey::new(Some(modifier), code);
+
+            match manager.register(hotkey) {
+                Ok(()) => {
+                    println!("   {} + {} → {}", config.leader_key, key_str, binding.name);
+                    hotkey_map.insert(hotkey.id(), (key_str.clone(), binding.clone()));
+                    hotkey_id += 1;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "❌ Failed to register hotkey {} + {}: {}",
+                        config.leader_key, key_str, e
+                    );
+                }
+            }
+        } else {
+            eprintln!("❌ Invalid key '{}' in config", key_str);
+        }
     }
+
+    if hotkey_map.is_empty() {
+        eprintln!("❌ No valid hotkeys were registered");
+        std::process::exit(1);
+    }
+
     println!("\n💡 Press Ctrl+C to stop");
+    println!("✨ Hotkeys are now active and will be intercepted (no key bleed-through)");
 
-    // Initialize global state
-    let global_state = GlobalState {
-        leader_key,
-        leader_pressed: AtomicBool::new(false),
-        config,
-    };
+    // Create event receiver
+    let global_hotkey_channel = GlobalHotKeyEvent::receiver();
 
-    if let Err(_) = GLOBAL_STATE.set(global_state) {
-        eprintln!("❌ Failed to initialize global state");
-        std::process::exit(1);
-    }
+    // Main event loop
+    loop {
+        if let Ok(event) = global_hotkey_channel.try_recv() {
+            if let Some((key_str, binding)) = hotkey_map.get(&event.id) {
+                execute_command(binding);
+            }
+        }
 
-    if let Err(error) = listen(callback) {
-        eprintln!("❌ Error listening to events: {:?}", error);
-        eprintln!("💡 You may need to grant accessibility permissions to this application");
-        std::process::exit(1);
+        // Small delay to prevent excessive CPU usage
+        thread::sleep(Duration::from_millis(10));
     }
 }
